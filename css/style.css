@@ -1,0 +1,68 @@
+/* ============================================================
+   Navigatore Villaggio San Francesco — stile base mobile-first
+   ============================================================ */
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 Oxygen, Ubuntu, sans-serif;
+    background: #1a1a1a;
+    color: #fff;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh; /* dynamic viewport per mobile con barre dinamiche */
+    width: 100vw;
+}
+
+/* ---------- Topbar ---------- */
+.topbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #1976d2;
+    color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+    z-index: 1000;
+}
+
+.topbar h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.topbar__hint {
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+/* ---------- Mappa ---------- */
+#map {
+    flex: 1 1 auto;
+    width: 100%;
+    background: #2a2a2a;
+    /* Evita scroll/bounce iOS quando si fa pan sulla mappa */
+    touch-action: none;
+}
+
+/* Sfondo del riquadro mappa di Leaflet quando si è oltre i bordi */
+.leaflet-container {
+    background: #2a2a2a;
+    outline: none;
+}

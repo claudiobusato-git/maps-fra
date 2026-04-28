@@ -126,7 +126,7 @@ Target ≥8, distribuiti. Lista in `gps-punti.txt`:
 
 ## 🚀 Roadmap a step verificabili
 
-**Step 1 — Mappa base** ⏳ : Leaflet + image overlay, pan/zoom mobile.
+**Step 1 — Mappa base** ✅ : Leaflet + image overlay, pan/zoom mobile. Implementato in `index.html` + `js/map-init.js` con `L.CRS.Simple` (coordinate pixel), zoom range `[-3, 2]`, `maxBounds` con viscosità 0.85.
 
 **Step 2 — Calibrazione GPS**: tool `tools/calibrate.html` → `calibration.json`. *Richiede punti GPS utente.*
 
@@ -192,6 +192,7 @@ python3 -m http.server 8000
 - **2026-04-28**: Snap-to-road raggio 15m
 - **2026-04-28**: Ricalcolo percorso solo se deviazione >20m
 - **2026-04-28**: MVP v1 si ferma allo Step 7 (rilascio rapido)
+- **2026-04-28**: Step 1 completato — `assets/map.jpg` è 4000×2693 px; bounds Leaflet `[[0,0],[2693,4000]]`. Leaflet 1.9.4 caricato via CDN in dev (verrà bundlato allo Step 12 per offline-first PWA).
 
 ## 🔄 Manutenzione di questo file
 
