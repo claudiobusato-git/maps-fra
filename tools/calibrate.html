@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tool calibrazione GPS — Villaggio San Francesco</title>
+
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin=""/>
+
+    <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont,
+            "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #eee; }
+        #wrap { display: grid; grid-template-columns: 1fr 360px; height: 100vh; }
+        #map { background: #2a2a2a; cursor: crosshair; }
+        #panel { background: #222; border-left: 1px solid #333; overflow-y: auto;
+                 padding: 12px 14px; }
+        h1 { font-size: 15px; margin: 0 0 4px; color: #fff; }
+        .sub { font-size: 12px; opacity: 0.7; margin-bottom: 12px; }
+        section { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #333; }
+        section:last-child { border-bottom: none; }
+        label { display: block; font-size: 11px; opacity: 0.75; margin-bottom: 3px; }
+        input[type="text"], input[type="number"] {
+            width: 100%; padding: 6px 8px; background: #2c2c2c; border: 1px solid #444;
+            border-radius: 4px; color: #eee; font-size: 13px;
+        }
+        input:focus { outline: none; border-color: #1976d2; }
+        button { padding: 7px 12px; background: #1976d2; color: #fff; border: none;
+                 border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        button:hover { background: #1565c0; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        button.secondary { background: #444; }
+        button.secondary:hover { background: #555; }
+        button.danger { background: #c62828; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+        .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+        .pt { padding: 8px; background: #2a2a2a; border-radius: 4px; margin-bottom: 6px;
+              font-size: 12px; }
+        .pt__name { font-weight: 600; color: #fff; }
+        .pt__coords { opacity: 0.7; font-family: monospace; font-size: 11px; margin-top: 2px; }
+        .pt__err { font-size: 11px; margin-top: 4px; }
+        .pt__err.ok { color: #66bb6a; }
+        .pt__err.warn { color: #ffa726; }
+        .pt__err.bad { color: #ef5350; }
+        .pt__del { float: right; padding: 2px 6px; font-size: 11px; }
+        .stats { font-size: 12px; line-height: 1.6; }
+        .stats b { color: #fff; }
+        .hint { font-size: 11px; opacity: 0.6; margin-top: 4px; line-height: 1.4; }
+        .crosshair-marker { background: rgba(255,82,82,0.85); border: 2px solid #fff;
+            border-radius: 50%; width: 14px !important; height: 14px !important; }
+        .leaflet-tooltip.pt-label { background: rgba(0,0,0,0.75); border: none;
+            color: #fff; font-size: 11px; padding: 2px 5px; }
+        .pending-marker { background: rgba(255,165,0,0.85); border: 2px dashed #fff;
+            border-radius: 50%; width: 14px !important; height: 14px !important; }
+        .placing-banner { position: fixed; top: 10px; left: calc((100vw - 360px) / 2);
+            transform: translateX(-50%); background: #ff9800; color: #fff;
+            padding: 8px 14px; border-radius: 4px; font-size: 13px; z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4); display: none; }
+        .placing-banner.active { display: block; }
+        .placing-banner button { margin-left: 10px; background: rgba(0,0,0,0.3);
+            padding: 3px 8px; font-size: 11px; }
+        textarea { width: 100%; padding: 6px 8px; background: #2c2c2c; border: 1px solid #444;
+            border-radius: 4px; color: #eee; font-size: 12px; font-family: monospace;
+            resize: vertical; min-height: 110px; }
+        textarea:focus { outline: none; border-color: #1976d2; }
+        .pt.pending { border-left: 3px solid #ff9800; }
+        .pt.pending .pt__name::before { content: '⏳ '; }
+        .pt__place { display: inline-block; margin-top: 4px; padding: 3px 8px;
+            background: #ff9800; color: #fff; border: none; border-radius: 3px;
+            cursor: pointer; font-size: 11px; }
+    </style>
+</head>
+<body>
+<div id="placingBanner" class="placing-banner">
+    Clicca sulla mappa per posizionare: <b id="placingName"></b>
+    <button id="btnCancelPlace">Annulla</button>
+</div>
+<div id="wrap">
+    <div id="map"></div>
+    <div id="panel">
+        <h1>🛰 Calibrazione GPS</h1>
+        <div class="sub">Tool dev — Step 2 della roadmap</div>
+
+        <section>
+            <b>📋 Importazione veloce</b>
+            <div class="hint">Incolla la tua lista GPS (formato libero — vedi esempio sotto).
+                I punti vengono caricati come "da posizionare": poi clicchi sulla mappa
+                per fissare la posizione di ognuno.</div>
+            <textarea id="bulkText" placeholder="nome: Reception
+lat: 45.612345
+lng: 12.934567
+
+nome: Ingresso spiaggia
+lat: 45.611111
+lng: 12.935000
+
+# oppure CSV: nome, lat, lng
+Acqua Park Garden, 45.610000, 12.933000"></textarea>
+            <div style="margin-top:6px; display:flex; gap:6px">
+                <button id="btnImport">+ Importa</button>
+                <button id="btnClearBulk" class="secondary">Pulisci</button>
+            </div>
+        </section>
+
+        <section>
+            <b>✏️ Inserimento manuale</b>
+            <div class="hint">Clicca un punto sulla mappa, poi compila nome + GPS.
+                Coordinate pixel del punto cliccato:</div>
+            <div class="row">
+                <input type="number" id="px" placeholder="px" step="0.1">
+                <input type="number" id="py" placeholder="py" step="0.1">
+            </div>
+
+            <b>2. Inserisci nome + GPS reale</b>
+            <label for="ptName">Nome riferimento</label>
+            <input type="text" id="ptName" placeholder="es. Reception">
+            <div class="row" style="margin-top:6px">
+                <div>
+                    <label for="lat">Latitudine</label>
+                    <input type="number" id="lat" placeholder="45.6XXXXX" step="0.000001">
+                </div>
+                <div>
+                    <label for="lng">Longitudine</label>
+                    <input type="number" id="lng" placeholder="12.9XXXXX" step="0.000001">
+                </div>
+            </div>
+            <div style="margin-top:8px; display:flex; gap:6px">
+                <button id="btnAdd">+ Aggiungi punto</button>
+                <button id="btnClear" class="secondary">Pulisci form</button>
+            </div>
+        </section>
+
+        <section>
+            <b>Punti raccolti (<span id="count">0</span>)</b>
+            <div id="list"></div>
+            <div class="hint">Lo stato è salvato automaticamente in localStorage.</div>
+        </section>
+
+        <section>
+            <b>Calibrazione</b>
+            <div id="stats" class="stats" style="margin-top:6px">
+                Servono almeno <b>3 punti</b> per calcolare la trasformazione.
+            </div>
+            <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap">
+                <button id="btnCalc" disabled>Calcola</button>
+                <button id="btnDownload" class="secondary" disabled>⬇ Scarica calibration.json</button>
+                <button id="btnReset" class="danger">Reset tutto</button>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+<script src="../js/geo-transform.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    const MAP = { url: '../assets/map.jpg', width: 4000, height: 2693 };
+    const STORAGE_KEY = 'calibration_points_v1';
+
+    /* ---------- Mappa ---------- */
+    const bounds = [[0, 0], [MAP.height, MAP.width]];
+    const map = L.map('map', {
+        crs: L.CRS.Simple,
+        minZoom: -3, maxZoom: 2, zoomSnap: 0.25,
+        attributionControl: false
+    });
+    L.imageOverlay(MAP.url, bounds, { interactive: false }).addTo(map);
+    map.fitBounds(bounds);
+
+    /* ---------- Stato ---------- */
+    // Un punto può essere "calibrato" (px/py + lat/lng tutti definiti) oppure
+    // "pending" (lat/lng presenti, px/py null — importati dalla lista GPS).
+    let points = [];          // {id, name, px:number|null, py:number|null, lat, lng}
+    let transform = null;
+    let nextId = 1;
+    let placingId = null;     // id del punto che stiamo posizionando sulla mappa
+    const markers = new Map();
+
+    function load() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+                const data = JSON.parse(raw);
+                points = data.points || [];
+                nextId = (points.reduce((m, p) => Math.max(m, p.id), 0) || 0) + 1;
+            }
+        } catch (e) { console.warn('localStorage corrotto, ignoro', e); }
+    }
+    function save() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ points }));
+    }
+
+    /* ---------- Click sulla mappa ---------- */
+    // In CRS.Simple, latlng.lat = y, latlng.lng = x (pixel coords)
+    map.on('click', (e) => {
+        const px = Math.round(e.latlng.lng * 10) / 10;
+        const py = Math.round(e.latlng.lat * 10) / 10;
+
+        if (placingId !== null) {
+            // Modalità posizionamento: fissa il pixel del punto pending
+            const p = points.find(pt => pt.id === placingId);
+            if (p) {
+                p.px = px; p.py = py;
+                addMarker(p);
+                transform = null;
+                save();
+            }
+            stopPlacing();
+            render();
+            return;
+        }
+
+        document.getElementById('px').value = px;
+        document.getElementById('py').value = py;
+        document.getElementById('ptName').focus();
+    });
+
+    /* ---------- Modalità posizionamento ---------- */
+    function startPlacing(id) {
+        const p = points.find(pt => pt.id === id);
+        if (!p) return;
+        placingId = id;
+        document.getElementById('placingName').textContent =
+            `${p.name || 'pt ' + p.id}  (lat ${p.lat.toFixed(5)}, lng ${p.lng.toFixed(5)})`;
+        document.getElementById('placingBanner').classList.add('active');
+    }
+    function stopPlacing() {
+        placingId = null;
+        document.getElementById('placingBanner').classList.remove('active');
+    }
+    document.getElementById('btnCancelPlace').addEventListener('click', stopPlacing);
+
+    /* ---------- Marker ---------- */
+    function addMarker(p) {
+        if (p.px == null || p.py == null) return; // pending: no marker
+        // Sostituisci eventuale marker esistente
+        removeMarker(p.id);
+        const m = L.marker([p.py, p.px], {
+            icon: L.divIcon({ className: 'crosshair-marker', iconSize: [14, 14] })
+        }).addTo(map);
+        m.bindTooltip(p.name || `pt ${p.id}`, {
+            permanent: true, direction: 'right', offset: [8, 0], className: 'pt-label'
+        });
+        markers.set(p.id, m);
+    }
+    function removeMarker(id) {
+        const m = markers.get(id);
+        if (m) { map.removeLayer(m); markers.delete(id); }
+    }
+    function rebuildMarkers() {
+        markers.forEach((m) => map.removeLayer(m));
+        markers.clear();
+        points.forEach(addMarker);
+    }
+    function calibratedPoints() {
+        return points.filter(p => p.px != null && p.py != null);
+    }
+
+    /* ---------- Render lista ---------- */
+    function render() {
+        const calibrated = calibratedPoints();
+        const pending = points.filter(p => p.px == null || p.py == null);
+        document.getElementById('count').textContent =
+            `${calibrated.length} calibrati${pending.length ? ` + ${pending.length} da posizionare` : ''}`;
+        const list = document.getElementById('list');
+        list.innerHTML = '';
+
+        const residuals = (transform && calibrated.length >= 3)
+            ? GeoTransform.computeResiduals(transform, calibrated).perPoint
+            : null;
+        const residualByIndex = new Map();
+        if (residuals) calibrated.forEach((p, i) => residualByIndex.set(p.id, residuals[i]));
+
+        points.forEach((p) => {
+            const isPending = (p.px == null || p.py == null);
+            const div = document.createElement('div');
+            div.className = 'pt' + (isPending ? ' pending' : '');
+            let body;
+            if (isPending) {
+                body = `<div class="pt__coords">lat ${p.lat.toFixed(6)}, lng ${p.lng.toFixed(6)}</div>
+                        <button class="pt__place" data-place-id="${p.id}">📍 Posiziona sulla mappa</button>`;
+            } else {
+                const r = residualByIndex.get(p.id);
+                const errHtml = r != null
+                    ? `<div class="pt__err ${r < 2 ? 'ok' : r < 5 ? 'warn' : 'bad'}">errore: ${r.toFixed(2)} m</div>`
+                    : '';
+                body = `<div class="pt__coords">px ${p.px.toFixed(1)}, py ${p.py.toFixed(1)}<br>
+                        lat ${p.lat.toFixed(6)}, lng ${p.lng.toFixed(6)}</div>${errHtml}`;
+            }
+            div.innerHTML = `
+                <button class="danger pt__del" data-id="${p.id}">×</button>
+                <div class="pt__name">${p.name || '(senza nome)'}</div>
+                ${body}`;
+            list.appendChild(div);
+        });
+        list.querySelectorAll('.pt__del').forEach(btn => {
+            btn.addEventListener('click', () => deletePoint(+btn.dataset.id));
+        });
+        list.querySelectorAll('[data-place-id]').forEach(btn => {
+            btn.addEventListener('click', () => startPlacing(+btn.dataset.placeId));
+        });
+
+        const canCalc = calibrated.length >= 3;
+        document.getElementById('btnCalc').disabled = !canCalc;
+        document.getElementById('btnDownload').disabled = !transform;
+
+        const stats = document.getElementById('stats');
+        if (!canCalc) {
+            stats.innerHTML = `Servono almeno <b>3 punti calibrati</b> (ne hai ${calibrated.length}).`;
+        } else if (!transform) {
+            stats.innerHTML = `Pronto a calcolare con <b>${calibrated.length}</b> punti calibrati. Clicca "Calcola".`;
+        } else {
+            const r = GeoTransform.computeResiduals(transform, calibrated);
+            const cls = r.rmse < 2 ? 'ok' : r.rmse < 5 ? 'warn' : 'bad';
+            stats.innerHTML = `
+                <span class="pt__err ${cls}">RMSE: <b>${r.rmse.toFixed(2)} m</b> · Max: <b>${r.max.toFixed(2)} m</b></span><br>
+                ${calibrated.length} punti · target &lt; 2m con 8+ punti distribuiti.`;
+        }
+    }
+
+    /* ---------- Operazioni ---------- */
+    function addPoint() {
+        const name = document.getElementById('ptName').value.trim();
+        const px = parseFloat(document.getElementById('px').value);
+        const py = parseFloat(document.getElementById('py').value);
+        const lat = parseFloat(document.getElementById('lat').value);
+        const lng = parseFloat(document.getElementById('lng').value);
+
+        if ([px, py, lat, lng].some(v => Number.isNaN(v))) {
+            alert('Compila pixel (clicca sulla mappa) e GPS (lat/lng).');
+            return;
+        }
+        const p = { id: nextId++, name, px, py, lat, lng };
+        points.push(p);
+        addMarker(p);
+        save();
+        transform = null;
+        ['ptName', 'px', 'py', 'lat', 'lng'].forEach(id => document.getElementById(id).value = '');
+        render();
+    }
+    function deletePoint(id) {
+        points = points.filter(p => p.id !== id);
+        removeMarker(id);
+        transform = null;
+        save();
+        render();
+    }
+    function calculate() {
+        try {
+            transform = GeoTransform.solveAffine(calibratedPoints());
+            render();
+        } catch (e) {
+            alert('Errore: ' + e.message);
+        }
+    }
+    function download() {
+        if (!transform) return;
+        const calibrated = calibratedPoints();
+        const residuals = GeoTransform.computeResiduals(transform, calibrated);
+        const out = {
+            generated: new Date().toISOString(),
+            mapImage: { width: MAP.width, height: MAP.height },
+            points: calibrated.map(p => ({
+                name: p.name, px: p.px, py: p.py, lat: p.lat, lng: p.lng
+            })),
+            transform: {
+                pixelToGps: { a: transform.a, b: transform.b, c: transform.c,
+                              d: transform.d, e: transform.e, f: transform.f },
+                gpsToPixel: transform.inverse
+            },
+            stats: { rmse_m: residuals.rmse, max_m: residuals.max, count: calibrated.length }
+        };
+        const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'calibration.json'; a.click();
+        URL.revokeObjectURL(url);
+    }
+    function resetAll() {
+        if (!confirm('Cancellare tutti i punti raccolti?')) return;
+        points = []; transform = null; nextId = 1;
+        stopPlacing();
+        markers.forEach(m => map.removeLayer(m));
+        markers.clear();
+        localStorage.removeItem(STORAGE_KEY);
+        render();
+    }
+
+    /* ---------- Bulk import ---------- */
+    // Parser tollerante: accetta blocchi YAML-like separati da riga vuota
+    //   nome: ...
+    //   lat: ...
+    //   lng: ...
+    // oppure righe CSV "nome, lat, lng".
+    function parseBulk(text) {
+        const out = [];
+        const blocks = text.split(/\n\s*\n/);
+        const keyMap = {
+            nome: 'name', name: 'name',
+            lat: 'lat', latitudine: 'lat', latitude: 'lat',
+            lng: 'lng', lon: 'lng', long: 'lng', longitude: 'lng', longitudine: 'lng'
+        };
+        for (const block of blocks) {
+            const trimmed = block.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+
+            // Tenta parsing YAML-like
+            const lines = trimmed.split('\n').map(l => l.trim())
+                .filter(l => l && !l.startsWith('#'));
+            const obj = {};
+            let yamlOk = false;
+            for (const line of lines) {
+                const m = line.match(/^([a-zA-Zàèéìòù]+)\s*[:=]\s*(.+)$/);
+                if (!m) { yamlOk = false; break; }
+                const k = keyMap[m[1].toLowerCase()];
+                if (k) { obj[k] = m[2].trim(); yamlOk = true; }
+            }
+            if (yamlOk && obj.lat && obj.lng) {
+                const lat = parseFloat(obj.lat), lng = parseFloat(obj.lng);
+                if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+                    out.push({ name: obj.name || '', lat, lng });
+                    continue;
+                }
+            }
+
+            // Fallback: ogni riga come CSV "nome, lat, lng"
+            for (const line of lines) {
+                const parts = line.split(/[,;\t]/).map(s => s.trim());
+                if (parts.length >= 3) {
+                    const lat = parseFloat(parts[parts.length - 2]);
+                    const lng = parseFloat(parts[parts.length - 1]);
+                    const name = parts.slice(0, parts.length - 2).join(', ');
+                    if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+                        out.push({ name, lat, lng });
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    function bulkImport() {
+        const text = document.getElementById('bulkText').value;
+        const parsed = parseBulk(text);
+        if (parsed.length === 0) {
+            alert('Nessun punto riconosciuto. Controlla il formato.');
+            return;
+        }
+        for (const p of parsed) {
+            points.push({ id: nextId++, name: p.name, px: null, py: null,
+                          lat: p.lat, lng: p.lng });
+        }
+        save();
+        document.getElementById('bulkText').value = '';
+        render();
+        alert(`Importati ${parsed.length} punti. Ora clicca "📍 Posiziona sulla mappa" su ognuno.`);
+    }
+
+    /* ---------- Bind ---------- */
+    document.getElementById('btnAdd').addEventListener('click', addPoint);
+    document.getElementById('btnClear').addEventListener('click', () => {
+        ['ptName', 'px', 'py', 'lat', 'lng'].forEach(id => document.getElementById(id).value = '');
+    });
+    document.getElementById('btnCalc').addEventListener('click', calculate);
+    document.getElementById('btnDownload').addEventListener('click', download);
+    document.getElementById('btnReset').addEventListener('click', resetAll);
+    document.getElementById('btnImport').addEventListener('click', bulkImport);
+    document.getElementById('btnClearBulk').addEventListener('click', () => {
+        document.getElementById('bulkText').value = '';
+    });
+    // ESC annulla la modalità posizionamento
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && placingId !== null) stopPlacing();
+    });
+
+    /* ---------- Bootstrap ---------- */
+    load();
+    rebuildMarkers();
+    const calibrated = calibratedPoints();
+    if (calibrated.length >= 3) {
+        try { transform = GeoTransform.solveAffine(calibrated); } catch (e) {}
+    }
+    render();
+})();
+</script>
+</body>
+</html>
