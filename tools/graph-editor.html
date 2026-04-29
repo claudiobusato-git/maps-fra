@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor grafo strade — Villaggio San Francesco</title>
+
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin=""/>
+
+    <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont,
+            "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #eee; }
+        #wrap { display: grid; grid-template-columns: 1fr 320px; height: 100vh; }
+        #map { background: #2a2a2a; }
+        #panel { background: #222; border-left: 1px solid #333; overflow-y: auto;
+                 padding: 12px 14px; }
+        h1 { font-size: 15px; margin: 0 0 4px; color: #fff; }
+        .sub { font-size: 12px; opacity: 0.7; margin-bottom: 12px; }
+        section { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #333; }
+        section:last-child { border-bottom: none; }
+        label { display: block; font-size: 11px; opacity: 0.75; margin-bottom: 3px; }
+        input[type="text"] { width: 100%; padding: 6px 8px; background: #2c2c2c;
+            border: 1px solid #444; border-radius: 4px; color: #eee; font-size: 13px; }
+        input:focus { outline: none; border-color: #1976d2; }
+        button { padding: 7px 10px; background: #1976d2; color: #fff; border: none;
+                 border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; }
+        button:hover { background: #1565c0; }
+        button.secondary { background: #444; }
+        button.secondary:hover { background: #555; }
+        button.danger { background: #c62828; }
+        button.active { background: #4caf50; box-shadow: 0 0 0 2px #2e7d32; }
+        .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .modes button { padding: 9px 6px; }
+        .stats { font-size: 12px; line-height: 1.7; }
+        .stats b { color: #fff; }
+        .hint { font-size: 11px; opacity: 0.65; margin-top: 6px; line-height: 1.45; }
+        .roads { font-size: 12px; max-height: 220px; overflow-y: auto;
+            background: #1a1a1a; border-radius: 4px; padding: 4px 6px; }
+        .road-row { padding: 3px 4px; border-radius: 3px; cursor: pointer;
+            display: flex; justify-content: space-between; }
+        .road-row:hover { background: #2a2a2a; }
+        .road-row__count { opacity: 0.55; font-size: 11px; }
+        .anchor-banner { position: fixed; top: 10px; left: calc((100vw - 320px) / 2);
+            transform: translateX(-50%); background: #4caf50; color: #fff;
+            padding: 7px 14px; border-radius: 4px; font-size: 12px; z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4); display: none; }
+        .anchor-banner.active { display: block; }
+        .anchor-banner kbd { background: rgba(0,0,0,0.3); padding: 1px 5px;
+            border-radius: 3px; font-family: monospace; font-size: 11px; }
+        /* Marker stylizzati via divIcon */
+        .gnode { width: 12px; height: 12px; border-radius: 50%;
+            background: #2196f3; border: 2px solid #fff; box-shadow: 0 0 3px rgba(0,0,0,0.5);
+            margin: -6px 0 0 -6px; cursor: pointer; }
+        .gnode.anchor { background: #4caf50; width: 16px; height: 16px;
+            margin: -8px 0 0 -8px; box-shadow: 0 0 0 3px rgba(76,175,80,0.4); }
+        .gnode.selected { background: #ff9800; }
+        body.mode-draw   #map { cursor: crosshair; }
+        body.mode-move   .gnode { cursor: grab; }
+        body.mode-delete #map { cursor: not-allowed; }
+        body.mode-rename .leaflet-interactive { cursor: text !important; }
+    </style>
+</head>
+<body class="mode-draw">
+<div id="anchorBanner" class="anchor-banner">
+    Catena attiva — il prossimo click crea un arco. <kbd>Esc</kbd> per terminare.
+</div>
+<div id="wrap">
+    <div id="map"></div>
+    <div id="panel">
+        <h1>🛣 Editor grafo strade</h1>
+        <div class="sub">Tool dev — Step 3 della roadmap</div>
+
+        <section>
+            <b>Modalità</b>
+            <div class="modes" style="margin-top:6px">
+                <button id="modeDraw"   class="active">🛣 Disegna</button>
+                <button id="modeMove"   class="secondary">✋ Sposta</button>
+                <button id="modeDelete" class="secondary">🗑 Elimina</button>
+                <button id="modeRename" class="secondary">✏️ Rinomina</button>
+            </div>
+            <div class="hint" id="modeHint">
+                Click sulla mappa = nuovo nodo. Click vicino a un nodo esistente
+                = aggancia. Se c'è una catena attiva, viene tracciato anche l'arco.
+                <kbd>Esc</kbd> termina la catena.
+            </div>
+        </section>
+
+        <section>
+            <b>Strada corrente</b>
+            <input type="text" id="currentRoad" placeholder="es. Via dei Tigli"
+                   value="Via dei Tigli" style="margin-top:4px">
+            <div class="hint">Ogni nuovo arco eredita questo nome. Cambialo quando
+                inizi a disegnare una nuova strada.</div>
+        </section>
+
+        <section>
+            <b>Statistiche</b>
+            <div id="stats" class="stats" style="margin-top:4px">—</div>
+        </section>
+
+        <section>
+            <b>Vie esistenti</b>
+            <div id="roads" class="roads" style="margin-top:4px">(nessuna)</div>
+            <div class="hint">Click su una via → la imposta come "strada corrente".</div>
+        </section>
+
+        <section>
+            <b>Import / Export</b>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px">
+                <button id="btnDownload">⬇ Scarica roads-graph.json</button>
+                <button id="btnUpload" class="secondary">⬆ Carica</button>
+                <input type="file" id="fileInput" accept=".json" style="display:none">
+                <button id="btnReset" class="danger">Reset</button>
+            </div>
+            <div class="hint">Lo stato è salvato in localStorage automaticamente.</div>
+        </section>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+<script>
+(function () {
+    'use strict';
+
+    const MAP = { url: '../assets/map.jpg', width: 4000, height: 2693 };
+    const STORAGE_KEY = 'roads_graph_v1';
+    const SNAP_PX = 15; // raggio di snap in pixel di SCHERMO
+
+    /* ---------- Mappa ---------- */
+    const bounds = [[0, 0], [MAP.height, MAP.width]];
+    const map = L.map('map', {
+        crs: L.CRS.Simple,
+        minZoom: -3, maxZoom: 3, zoomSnap: 0.25,
+        attributionControl: false
+    });
+    L.imageOverlay(MAP.url, bounds, { interactive: false }).addTo(map);
+    map.fitBounds(bounds);
+
+    /* ---------- Stato ---------- */
+    let nodes = new Map();   // id -> {id, px, py}
+    let edges = new Map();   // id -> {id, from, to, name, length_px}
+    let nextNodeId = 1;
+    let nextEdgeId = 1;
+    let mode = 'draw';       // 'draw'|'move'|'delete'|'rename'
+    let anchorId = null;     // nodo "ancora" della catena di disegno
+
+    const nodeLayers = new Map();  // id -> L.Marker
+    const edgeLayers = new Map();  // id -> L.Polyline
+
+    /* ---------- Persistenza ---------- */
+    function save() {
+        const data = {
+            nodes: [...nodes.values()],
+            edges: [...edges.values()],
+            nextNodeId, nextEdgeId
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+    function load() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            nodes = new Map((data.nodes || []).map(n => [n.id, n]));
+            edges = new Map((data.edges || []).map(e => [e.id, e]));
+            nextNodeId = data.nextNodeId || (nodes.size + 1);
+            nextEdgeId = data.nextEdgeId || (edges.size + 1);
+        } catch (err) { console.warn('localStorage corrotto, ignoro', err); }
+    }
+
+    /* ---------- Helpers ---------- */
+    function edgeLength(a, b) { return Math.hypot(a.px - b.px, a.py - b.py); }
+
+    // Distanza in pixel di SCHERMO tra un nodo e un click (px,py mappa).
+    function screenDist(node, clickPx, clickPy) {
+        const ns = map.latLngToContainerPoint([node.py, node.px]);
+        const cs = map.latLngToContainerPoint([clickPy, clickPx]);
+        return Math.hypot(ns.x - cs.x, ns.y - cs.y);
+    }
+    function nearestNodeForSnap(clickPx, clickPy) {
+        let best = null, bestD = Infinity;
+        for (const n of nodes.values()) {
+            const d = screenDist(n, clickPx, clickPy);
+            if (d < bestD) { bestD = d; best = n; }
+        }
+        return (best && bestD < SNAP_PX) ? best : null;
+    }
+
+    /* ---------- Render ---------- */
+    function makeNodeIcon(cls) {
+        return L.divIcon({ className: '', iconSize: [0, 0],
+            html: `<div class="gnode ${cls || ''}"></div>` });
+    }
+    function renderNode(node) {
+        const m = L.marker([node.py, node.px], {
+            icon: makeNodeIcon(),
+            draggable: false,
+            keyboard: false,
+            zIndexOffset: 200
+        }).addTo(map);
+        m.on('click', (e) => { L.DomEvent.stopPropagation(e); onNodeClick(node.id); });
+        m.on('dragend', () => {
+            const ll = m.getLatLng();
+            node.px = ll.lng; node.py = ll.lat;
+            // aggiorna lunghezze degli archi connessi
+            for (const e of edges.values()) {
+                if (e.from === node.id || e.to === node.id) {
+                    const a = nodes.get(e.from), b = nodes.get(e.to);
+                    e.length_px = edgeLength(a, b);
+                    edgeLayers.get(e.id).setLatLngs([[a.py, a.px], [b.py, b.px]]);
+                }
+            }
+            save(); refreshStats();
+        });
+        nodeLayers.set(node.id, m);
+        applyNodeStyle(node.id);
+    }
+    function applyNodeStyle(id) {
+        const m = nodeLayers.get(id); if (!m) return;
+        const cls = (id === anchorId) ? 'anchor' : '';
+        m.setIcon(makeNodeIcon(cls));
+        m.dragging && (mode === 'move' ? m.dragging.enable() : m.dragging.disable());
+        if (mode === 'move' && !m.dragging) {
+            // Marker creato senza draggable: ricrealo abilitato
+            map.removeLayer(m);
+            const m2 = L.marker(m.getLatLng(), {
+                icon: makeNodeIcon(cls), draggable: true, zIndexOffset: 200
+            }).addTo(map);
+            m2.on('click', (e) => { L.DomEvent.stopPropagation(e); onNodeClick(id); });
+            m2.on('dragend', () => {
+                const node = nodes.get(id); const ll = m2.getLatLng();
+                node.px = ll.lng; node.py = ll.lat;
+                for (const e of edges.values()) {
+                    if (e.from === id || e.to === id) {
+                        const a = nodes.get(e.from), b = nodes.get(e.to);
+                        e.length_px = edgeLength(a, b);
+                        edgeLayers.get(e.id).setLatLngs([[a.py, a.px], [b.py, b.px]]);
+                    }
+                }
+                save(); refreshStats();
+            });
+            nodeLayers.set(id, m2);
+        }
+    }
+    function renderEdge(edge) {
+        const a = nodes.get(edge.from), b = nodes.get(edge.to);
+        const line = L.polyline([[a.py, a.px], [b.py, b.px]], {
+            color: '#e0e0e0', weight: 3, opacity: 0.85,
+            interactive: true, bubblingMouseEvents: false
+        }).addTo(map);
+        line.bindTooltip(`${edge.name} · ${edge.length_px.toFixed(0)}px`,
+            { sticky: true, className: 'pt-label' });
+        line.on('click', (e) => { L.DomEvent.stopPropagation(e); onEdgeClick(edge.id); });
+        edgeLayers.set(edge.id, line);
+    }
+    function renderAll() {
+        nodeLayers.forEach(m => map.removeLayer(m)); nodeLayers.clear();
+        edgeLayers.forEach(l => map.removeLayer(l)); edgeLayers.clear();
+        // Archi sotto, nodi sopra
+        for (const e of edges.values()) renderEdge(e);
+        for (const n of nodes.values()) renderNode(n);
+    }
+
+    /* ---------- Operazioni ---------- */
+    function createNode(px, py) {
+        const id = 'n' + (nextNodeId++);
+        const node = { id, px, py };
+        nodes.set(id, node);
+        renderNode(node);
+        return node;
+    }
+    function createEdge(fromId, toId, name) {
+        // Evita duplicati (stessa coppia non orientata)
+        for (const e of edges.values()) {
+            if ((e.from === fromId && e.to === toId) ||
+                (e.from === toId && e.to === fromId)) return e;
+        }
+        const a = nodes.get(fromId), b = nodes.get(toId);
+        const id = 'e' + (nextEdgeId++);
+        const edge = { id, from: fromId, to: toId, name,
+                       length_px: edgeLength(a, b) };
+        edges.set(id, edge);
+        renderEdge(edge);
+        return edge;
+    }
+    function deleteNode(id) {
+        // Cancella anche tutti gli archi connessi
+        for (const e of [...edges.values()]) {
+            if (e.from === id || e.to === id) deleteEdge(e.id);
+        }
+        const m = nodeLayers.get(id); if (m) map.removeLayer(m);
+        nodeLayers.delete(id); nodes.delete(id);
+        if (anchorId === id) setAnchor(null);
+    }
+    function deleteEdge(id) {
+        const l = edgeLayers.get(id); if (l) map.removeLayer(l);
+        edgeLayers.delete(id); edges.delete(id);
+    }
+    function setAnchor(id) {
+        const prev = anchorId;
+        anchorId = id;
+        if (prev) applyNodeStyle(prev);
+        if (id) applyNodeStyle(id);
+        document.getElementById('anchorBanner').classList.toggle('active', !!id);
+    }
+
+    /* ---------- Click handlers ---------- */
+    function currentRoadName() {
+        return document.getElementById('currentRoad').value.trim() || '(senza nome)';
+    }
+
+    map.on('click', (e) => {
+        // In CRS.Simple: latlng.lat = y, latlng.lng = x
+        const px = e.latlng.lng, py = e.latlng.lat;
+        const snapped = nearestNodeForSnap(px, py);
+
+        if (mode === 'draw') {
+            const target = snapped || createNode(Math.round(px*10)/10, Math.round(py*10)/10);
+            if (anchorId && target.id !== anchorId) {
+                createEdge(anchorId, target.id, currentRoadName());
+            }
+            setAnchor(target.id);
+            save(); refreshStats(); refreshRoads();
+        }
+        // Mode delete/rename/move: gestiti dai click sui nodi/archi specifici
+    });
+
+    function onNodeClick(id) {
+        if (mode === 'draw') {
+            // Equivalente a click "che agganciato" su questo nodo
+            if (anchorId && anchorId !== id) {
+                createEdge(anchorId, id, currentRoadName());
+            }
+            setAnchor(id);
+            save(); refreshStats(); refreshRoads();
+        } else if (mode === 'delete') {
+            deleteNode(id);
+            save(); refreshStats(); refreshRoads();
+        }
+    }
+    function onEdgeClick(id) {
+        if (mode === 'delete') {
+            deleteEdge(id);
+            save(); refreshStats(); refreshRoads();
+        } else if (mode === 'rename') {
+            const e = edges.get(id);
+            const oldName = e.name;
+            const newName = prompt(
+                `Nuovo nome per questo arco (attualmente "${oldName}").\n` +
+                `Lascia vuoto per applicare anche a tutti gli archi della stessa via.`,
+                oldName);
+            if (newName == null) return;
+            const trimmed = newName.trim() || '(senza nome)';
+            if (confirm(`Rinominare TUTTI gli archi di "${oldName}" in "${trimmed}"?\n` +
+                        `OK = sì, Annulla = solo questo.`)) {
+                for (const ed of edges.values()) {
+                    if (ed.name === oldName) {
+                        ed.name = trimmed;
+                        const lyr = edgeLayers.get(ed.id);
+                        lyr.setTooltipContent(`${ed.name} · ${ed.length_px.toFixed(0)}px`);
+                    }
+                }
+            } else {
+                e.name = trimmed;
+                edgeLayers.get(id).setTooltipContent(`${e.name} · ${e.length_px.toFixed(0)}px`);
+            }
+            save(); refreshRoads();
+        }
+    }
+
+    /* ---------- Modalità ---------- */
+    function setMode(m) {
+        mode = m;
+        document.body.classList.remove('mode-draw','mode-move','mode-delete','mode-rename');
+        document.body.classList.add('mode-' + m);
+        ['modeDraw','modeMove','modeDelete','modeRename'].forEach(id => {
+            const btn = document.getElementById(id);
+            const want = id.toLowerCase().endsWith(m);
+            btn.classList.toggle('active', want);
+            btn.classList.toggle('secondary', !want);
+        });
+        const hints = {
+            draw: 'Click sulla mappa = nuovo nodo. Click vicino a un nodo esistente = aggancia (snap entro 15px). Se c\'è una catena attiva, traccia l\'arco. <kbd>Esc</kbd> termina.',
+            move: 'Trascina i nodi per riposizionarli. Gli archi connessi si aggiornano automaticamente.',
+            delete: 'Click su un nodo = lo cancella insieme a tutti i suoi archi. Click su un arco = cancella solo quello.',
+            rename: 'Click su un arco = rinomina. Il prompt chiede se applicare il nuovo nome a tutta la via o solo a quell\'arco.'
+        };
+        document.getElementById('modeHint').innerHTML = hints[m];
+        if (m !== 'draw') setAnchor(null);
+        // Re-render per attivare/disattivare draggable
+        renderAll();
+    }
+    document.getElementById('modeDraw').addEventListener('click',   () => setMode('draw'));
+    document.getElementById('modeMove').addEventListener('click',   () => setMode('move'));
+    document.getElementById('modeDelete').addEventListener('click', () => setMode('delete'));
+    document.getElementById('modeRename').addEventListener('click', () => setMode('rename'));
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') setAnchor(null);
+        if (e.target.tagName === 'INPUT') return;
+        if (e.key === '1') setMode('draw');
+        if (e.key === '2') setMode('move');
+        if (e.key === '3') setMode('delete');
+        if (e.key === '4') setMode('rename');
+    });
+
+    /* ---------- UI dinamica ---------- */
+    function refreshStats() {
+        let totalLen = 0;
+        for (const e of edges.values()) totalLen += e.length_px;
+        document.getElementById('stats').innerHTML =
+            `Nodi: <b>${nodes.size}</b><br>Archi: <b>${edges.size}</b><br>` +
+            `Lunghezza totale: <b>${totalLen.toFixed(0)} px</b>`;
+    }
+    function refreshRoads() {
+        const counts = new Map();
+        for (const e of edges.values()) {
+            counts.set(e.name, (counts.get(e.name) || 0) + 1);
+        }
+        const div = document.getElementById('roads');
+        if (counts.size === 0) { div.innerHTML = '(nessuna)'; return; }
+        const sorted = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        div.innerHTML = '';
+        for (const [name, n] of sorted) {
+            const row = document.createElement('div');
+            row.className = 'road-row';
+            row.innerHTML = `<span>${name}</span><span class="road-row__count">${n}</span>`;
+            row.addEventListener('click', () => {
+                document.getElementById('currentRoad').value = name;
+            });
+            div.appendChild(row);
+        }
+    }
+
+    /* ---------- Import / Export ---------- */
+    function download() {
+        const out = {
+            generated: new Date().toISOString(),
+            mapImage: { width: MAP.width, height: MAP.height },
+            nodes: [...nodes.values()],
+            edges: [...edges.values()]
+        };
+        const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'roads-graph.json'; a.click();
+        URL.revokeObjectURL(url);
+    }
+    document.getElementById('btnDownload').addEventListener('click', download);
+
+    document.getElementById('btnUpload').addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+    });
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const data = JSON.parse(ev.target.result);
+                if (!confirm(`Caricare ${data.nodes?.length || 0} nodi e ` +
+                             `${data.edges?.length || 0} archi? Sostituisce il grafo attuale.`)) return;
+                nodes = new Map((data.nodes || []).map(n => [n.id, n]));
+                edges = new Map((data.edges || []).map(ed => [ed.id, ed]));
+                // Ricalcola contatori
+                const maxN = [...nodes.keys()].reduce((m, id) => Math.max(m, parseInt(id.slice(1)) || 0), 0);
+                const maxE = [...edges.keys()].reduce((m, id) => Math.max(m, parseInt(id.slice(1)) || 0), 0);
+                nextNodeId = maxN + 1; nextEdgeId = maxE + 1;
+                setAnchor(null);
+                renderAll(); save(); refreshStats(); refreshRoads();
+            } catch (err) { alert('Errore parsing JSON: ' + err.message); }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    });
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+        if (!confirm('Cancellare TUTTO il grafo? Operazione irreversibile.')) return;
+        nodes.clear(); edges.clear();
+        nextNodeId = 1; nextEdgeId = 1;
+        setAnchor(null);
+        renderAll(); localStorage.removeItem(STORAGE_KEY);
+        refreshStats(); refreshRoads();
+    });
+
+    /* ---------- Bootstrap ---------- */
+    load();
+    renderAll();
+    refreshStats();
+    refreshRoads();
+})();
+</script>
+</body>
+</html>
